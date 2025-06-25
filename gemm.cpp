@@ -51,6 +51,8 @@ void gemm_reordered_unroll(float* C, float* A,float* B, int N, int M, int P) {
     }
 }
 
+
+
 void print_matrix(const float* mat, int rows, int cols, const std::string& name) {
     std::cout << name << ":\n";
     for (int i = 0; i < rows; i++) {
