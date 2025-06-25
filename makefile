@@ -1,5 +1,5 @@
 run: gemm.cpp
-	g++ -O3 -o a gemm.cpp
+	g++ -O3 main.cpp gemm.cpp -o a
 	./a
 
 .PHONY: clean
