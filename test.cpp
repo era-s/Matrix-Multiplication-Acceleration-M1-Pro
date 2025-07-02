@@ -5,6 +5,54 @@
 #include <random>
 
 
+void matnul_4x4_kernel() {
+    // Implement the 4x4 matrix multiplication kernel here
+    // This is a placeholder function
+}
+
+void matmul_kernel_launcher() {
+    // This function will launch the appropriate kernel based on the size of the matrices
+}
+
+void matmul_naive(const int n, const int p, const int m, const double* A, const int lda,
+                  const double* B, const int ldb, double* C, const int ldc) {
+    for (int i = 0; i < n; ++i) {
+        for (int j = 0; j < m; ++j) {
+            C[i * ldc + j] = 0.0;
+            for (int k = 0; k < p; ++k) {
+                C[i * ldc + j] += A[i * lda + j] * B[k * ldb + j];
+            }
+        }
+    }
+}
+
+bool verify_results(const int n, const int p, const int m, const double* A, const int lda,
+                    const double* B, const int ldb, double* C, const int ldc) {
+    std::vector<double> C_naive(n * m, 0.0);
+    std::vector<double> C_opt(n * m, 0.0);
+    std::copy(C, C + n * m, C_naive.data());
+    std::copy(C, C + n * m, C_opt.data());
+    
+    matmul_naive(n, p, m, A, lda, B, ldb, C_naive.data(), ldc);
+    matmul_kernel_launcher();
+    
+    const double epsilon = 1e-10;
+    bool match = true;
+
+    for (auto i = 0; i < n; ++i) {
+        for (auto j = 0; j < m; ++j) {
+            double diff = std::abs(C_naive[i * ldc + j] - C_opt[i * ldc + j]);
+            if (diff > epsilon) {
+                std::cout << "Mismatch at (" << i << ", " << j << "): "
+                            << "Naive: " << C_naive[i * ldc + j] << ", "
+                            << "Optimized: " << C_opt[i * ldc + j] << std::endl;
+                    match = false;
+            }
+        }
+    }
+    return match;
+}
+
 void generate_random_matrix(int rows, int cols, std::vector<double>& matrix) {
     unsigned int seed = static_cast<unsigned int>(std::chrono::system_clock::now().time_since_epoch().count());
     std::mt19937 mt(seed);
@@ -67,8 +115,14 @@ int main(int argc, char* argv[]) {
         generate_random_matrix(n, p, A);
         generate_random_matrix(p, m, B);
 
-        // 검증 코드 추가해야함
-        bool verified = false;
+        bool verified = true;
+        if (perform_checks) {
+            verified = verify_results(n, p, m, A.data(), p, B.data(), m, C.data(), m);
+            if (!verified) {
+                std::cout << "Verification failed for size: " << size << std::endl;
+                exit(1);
+            }
+        }
 
         benchmark_file << n << "," << p << "," << m;
 
@@ -76,7 +130,7 @@ int main(int argc, char* argv[]) {
             std::vector<double> C_test = C;
             auto elapsed_time = benchmark([&]() {
                 // Call the matrix multiplication function here
-                // For example: matrix_multiply(C_test.data(), n, p, m, A.data(), B.data());
+                matmul_kernel_launcher();
             });
             auto flops = flop_count / elapsed_time * 1e-9; // Convert to GFLOPS
             benchmark_file << "," << flops;
