@@ -1,61 +1,96 @@
-void rank_one_kernel_4x4(int k, 
-                         double* C, int ldc, 
-                         const double* A, int lda, 
-                         const double* B, int ldb) {
-    double c00 = C[0 + 0 * ldc];
-    double c01 = C[0 + 1 * ldc];
-    double c02 = C[0 + 2 * ldc];
-    double c03 = C[0 + 3 * ldc];
+#include <iostream>
+#include <fstream>
+#include <vector>
+#include <chrono>
+#include <random>
 
-    double c10 = C[1 + 0 * ldc];
-    double c11 = C[1 + 1 * ldc];
-    double c12 = C[1 + 2 * ldc];
-    double c13 = C[1 + 3 * ldc];
 
-    double c20 = C[2 + 0 * ldc];
-    double c21 = C[2 + 1 * ldc];
-    double c22 = C[2 + 2 * ldc];
-    double c23 = C[2 + 3 * ldc];
+void generate_random_matrix(int rows, int cols, std::vector<double>& matrix) {
+    unsigned int seed = static_cast<unsigned int>(std::chrono::system_clock::now().time_since_epoch().count());
+    std::mt19937 mt(seed);
+    std::uniform_real_distribution<double> dist(-1.0, 1.0);
 
-    double c30 = C[3 + 0 * ldc];
-    double c31 = C[3 + 1 * ldc];
-    double c32 = C[3 + 2 * ldc];
-    double c33 = C[3 + 3 * ldc];
+    for (auto i = 0; i < rows; ++i) {
+        for (auto j = 0; j < cols; ++j) {
+            matrix[i * cols + j] = dist(mt);
+        }
+    }
+}
 
-    for (auto l = 0; l < k; l++) {
-        double a0 = A[0 + l * lda];
-        double a1 = A[1 + l * lda];
-        double a2 = A[2 + l * lda];
-        double a3 = A[3 + l * lda];
+template <typename Func>
+double benchmark(Func func) {
+    auto start = std::chrono::high_resolution_clock::now();
+    func();
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed = end - start;
+    return elapsed.count()
+}
 
-        double b0 = B[l + 0 * ldb];
-        double b1 = B[l + 1 * ldb];
-        double b2 = B[l + 2 * ldb];
-        double b3 = B[l + 3 * ldb];
-
-        c00 += a0 * b0;   c01 += a0 * b1;
-        c02 += a0 * b2;   c03 += a0 * b3;
-
-        c10 += a1 * b0;   c11 += a1 * b1;
-        c12 += a1 * b2;   c13 += a1 * b3;
-
-        c20 += a2 * b0;   c21 += a2 * b1;
-        c22 += a2 * b2;   c23 += a2 * b3;
-
-        c30 += a3 * b0;   c31 += a3 * b1;
-        c32 += a3 * b2;   c33 += a3 * b3;
+int main(int argc, char* argv[]) {
+    auto perform_checks = true;
+    for (auto i = 1; i < argc; ++i) {
+        if (std::string(argv[i]) == "--no-checks") {
+            perform_checks = false;
+        }
+    }
+    std::ofstream benchmark_file("benchmark_results.csv");
+    if (!benchmark_file.is_open()) {
+        std::cerr << "Error opening benchmark_results.csv for writing." << std::endl;
+        return 1;
     }
 
-    C[0 + 0 * ldc] = c00;   C[0 + 1 * ldc] = c01;
-    C[0 + 2 * ldc] = c02;   C[0 + 3 * ldc] = c03;
+    // Write header to the CSV file
+    benchmark_file << "n, p ,m ,GFLOPS1,GFLOPS2,GFLOPS3,GFLOPS4,GFLOPS5,Verified" << std::endl;
 
-    C[1 + 0 * ldc] = c10;   C[1 + 1 * ldc] = c11;
-    C[1 + 2 * ldc] = c12;   C[1 + 3 * ldc] = c13;
+    std::vector<int>sizes;
 
-    C[2 + 0 * ldc] = c20;   C[2 + 1 * ldc] = c21;
-    C[2 + 2 * ldc] = c22;   C[2 + 3 * ldc] = c23;
+    for (auto size = 4; size <= 124; size += 4) {
+        sizes.push_back(size);
+    }
 
-    C[3 + 0 * ldc] = c30;   C[3 + 1 * ldc] = c31;
-    C[3 + 2 * ldc] = c32;   C[3 + 3 * ldc] = c33;
+    for (auto size = 128; size <= 4096; size += 8) {
+        sizes.push_back(size);
+    }
+
+    const int num_trials = 5;
+
+    for (auto size : sizes) {
+
+        std::cout << "Running benchmarks for size: " << size << "..." << std::endl;
+        int n = size, p = size, m = size;
+        auto flop_count = static_cast<double>(n) * p * m * 2.0;
+
+        std::vector<double> A(n * p);
+        std::vector<double> B(p * m);
+        std::vector<double> C(n * m, 0.0);
+
+        generate_random_matrix(n, p, A);
+        generate_random_matrix(p, m, B);
+
+        // 검증 코드 추가해야함
+        bool verified = false;
+
+        benchmark_file << n << "," << p << "," << m;
+
+        for (auto trial = 0; trial < num_trials; ++trial) {
+            std::vector<double> C_test = C;
+            auto elapsed_time = benchmark([&]() {
+                // Call the matrix multiplication function here
+                // For example: matrix_multiply(C_test.data(), n, p, m, A.data(), B.data());
+            });
+            auto flops = flop_count / elapsed_time * 1e-9; // Convert to GFLOPS
+            benchmark_file << "," << flops;
+        }
+
+        if (perform_checks) {
+            benchmark_file << ',' << (verified ? "True" : "False");
+        }
+
+        benchmark_file << std::endl;
+    }
+
+    benchmark_file.close();
+    std::cout << "Benchmarking completed. Results saved to benchmark_results.csv." << std::endl;
     
+    return 0;  
 }
