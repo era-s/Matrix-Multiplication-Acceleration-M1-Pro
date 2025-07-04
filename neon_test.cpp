@@ -1,4 +1,28 @@
 #include <arm_neon.h>
+#include <algorithm>
+#include <iostream>
+#include <fstream>
+#include <vector>
+#include <chrono>
+#include <random>
+
+// Define block sizes
+#define MR 4
+#define NR 4
+#define KC 4120
+
+#define CACHELINE 64
+#if defined(__GNUC__) || defined(__clang__)
+    #define ALIGN(x) __attribute__((aligned(x)))
+#elif defined(_MSC_VER)
+    #define ALIGN(x) __declspec(align(x))
+#else
+    #define ALIGN(x)
+#endif
+
+ALIGN(CACHELINE) static double Apanel[KC * NR];
+ALIGN(CACHELINE) static double Bpanel[KC * MR];
+
 
 void neon_kernel_4x4(const int P, const double * __restrict A, const int lda,
                      const double * __restrict B, const int ldb,
@@ -17,10 +41,15 @@ void neon_kernel_4x4(const int P, const double * __restrict A, const int lda,
 
     for (auto l = 0; l < P; l++) {
         // A 로드
-        float64x2_t a0 = vdupq_n_f64(A[0 * lda + l]);
-        float64x2_t a1 = vdupq_n_f64(A[1 * lda + l]);
-        float64x2_t a2 = vdupq_n_f64(A[2 * lda + l]);
-        float64x2_t a3 = vdupq_n_f64(A[3 * lda + l]);
+        // float64x2_t a0 = vdupq_n_f64(A[l * lda + 0]);
+        // float64x2_t a1 = vdupq_n_f64(A[l * lda + 1]);
+        // float64x2_t a2 = vdupq_n_f64(A[l * lda + 2]);
+        // float64x2_t a3 = vdupq_n_f64(A[l * lda + 3]);
+        float64x2_t a0 = vld1q_dup_f64(A + l * lda + 0);
+        float64x2_t a1 = vld1q_dup_f64(A + l * lda + 1);
+        float64x2_t a2 = vld1q_dup_f64(A + l * lda + 2);
+        float64x2_t a3 = vld1q_dup_f64(A + l * lda + 3);
+        
 
         // B 로드
         float64x2_t b0 = vld1q_f64(B + l * ldb + 0);
@@ -46,4 +75,176 @@ void neon_kernel_4x4(const int P, const double * __restrict A, const int lda,
     vst1q_f64(C + 2 * ldc + 2, c21);
     vst1q_f64(C + 3 * ldc, c30);
     vst1q_f64(C + 3 * ldc + 2, c31);
+}
+
+void matmul_neon_kernel_launcher(const int n, const int p, const int m,
+                                    const double * __restrict A, const int lda,
+                                    const double * __restrict B, const int ldb,
+                                    double * __restrict C, const int ldc) {
+    for (auto i = 0; i < n ; i += NR) {
+        auto nr = std::min(NR, n - i);
+        for (auto ii = 0; ii < nr; ii++) {
+            for (auto l = 0; l < p; l++) {
+                Apanel[l * NR + ii] = A[(i + ii) * lda + l];
+            }
+        }
+        for (auto l = 0; l < p; ++l) {
+            for (auto ii = nr; ii < NR; ii++) {
+                Apanel[l * NR + ii] = 0.0;
+            }
+        }
+
+        for (auto j = 0; j < m; j += MR) {
+            auto mr = std::min(MR, m - j);
+
+            for (auto l = 0; l < p; ++l) {
+                for (auto jj = 0; jj < mr; jj++) {
+                    Bpanel[l * MR + jj] = B[l * ldb + (j + jj)];
+                }
+            }
+            for (auto jj = mr; jj < MR; jj++) {
+                for (auto l = 0; l < p; l++) {
+                    Bpanel[l * MR + jj] = 0.0;
+                }
+            }
+            double *Cblk = C + i * ldc + j;
+
+            // Call the neon kernel
+            neon_kernel_4x4(p, Apanel, NR, Bpanel, MR, Cblk, ldc);
+        }
+    }
+}
+
+void matmul_naive(const int n, const int p, const int m, const double* A, const int lda,
+                  const double* B, const int ldb, double* C, const int ldc) {
+    for (int i = 0; i < n; ++i) {
+        for (int j = 0; j < m; ++j) {
+            C[i * ldc + j] = 0.0;
+            for (int k = 0; k < p; ++k) {
+                C[i * ldc + j] += A[i * lda + k] * B[k * ldb + j];
+            }
+        }
+    }
+}
+
+bool verify_results(const int n, const int p, const int m, const double* A, const int lda,
+                    const double* B, const int ldb, double* C, const int ldc) {
+    std::vector<double> C_naive(n * m, 0.0);
+    std::vector<double> C_opt(n * m, 0.0);
+    
+    matmul_naive(n, p, m, A, lda, B, ldb, C_naive.data(), ldc);
+    matmul_neon_kernel_launcher(n, p, m, A, lda, B, ldb, C_opt.data(), ldc);
+    
+    const double epsilon = 1e-10;
+    bool match = true;
+
+    for (auto i = 0; i < n; ++i) {
+        for (auto j = 0; j < m; ++j) {
+            double diff = std::abs(C_naive[i * ldc + j] - C_opt[i * ldc + j]);
+            if (diff > epsilon) {
+                std::cout << "Mismatch at (" << i << ", " << j << "): "
+                            << "Naive: " << C_naive[i * ldc + j] << ", "
+                            << "Optimized: " << C_opt[i * ldc + j] << std::endl;
+                    match = false;
+            }
+        }
+    }
+    return match;
+}
+
+void generate_random_matrix(int rows, int cols, std::vector<double>& matrix) {
+    unsigned int seed = static_cast<unsigned int>(std::chrono::system_clock::now().time_since_epoch().count());
+    std::mt19937 mt(seed);
+    std::uniform_real_distribution<double> dist(-1.0, 1.0);
+
+    for (auto i = 0; i < rows; ++i) {
+        for (auto j = 0; j < cols; ++j) {
+            matrix[i * cols + j] = dist(mt);
+        }
+    }
+}
+
+template <typename Func>
+double benchmark(Func func) {
+    auto start = std::chrono::high_resolution_clock::now();
+    func();
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed = end - start;
+    return elapsed.count();
+}
+
+int main(int argc, char* argv[]) {
+    auto perform_checks = true;
+    for (auto i = 1; i < argc; ++i) {
+        if (std::string(argv[i]) == "--no-checks") {
+            std::cout << "Skipping verification checks." << std::endl;
+            perform_checks = false;
+        }
+    }
+    std::ofstream benchmark_file("benchmark_results.csv");
+    if (!benchmark_file.is_open()) {
+        std::cerr << "Error opening benchmark_results.csv for writing." << std::endl;
+        return 1;
+    }
+
+    // Write header to the CSV file
+    benchmark_file << "n, p ,m ,GFLOPS1,GFLOPS2,GFLOPS3,GFLOPS4,GFLOPS5,Verified" << std::endl;
+
+    std::vector<int>sizes;
+
+    for (auto size = 4; size <= 124; size += 4) {
+        sizes.push_back(size);
+    }
+
+    for (auto size = 128; size <= 4096; size += 8) {
+        sizes.push_back(size);
+    }
+
+    const int num_trials = 5;
+
+    for (auto size : sizes) {
+
+        std::cout << "Running benchmarks for size: " << size << "..." << std::endl;
+        int n = size, p = size, m = size;
+        auto flop_count = static_cast<double>(n) * p * m * 2.0;
+
+        std::vector<double> A(n * p);
+        std::vector<double> B(p * m);
+        std::vector<double> C(n * m, 0.0);
+
+        generate_random_matrix(n, p, A);
+        generate_random_matrix(p, m, B);
+
+        bool verified = true;
+        if (perform_checks) {
+            verified = verify_results(n, p, m, A.data(), p, B.data(), m, C.data(), m);
+            if (!verified) {
+                std::cout << "Verification failed for size: " << size << std::endl;
+                exit(1);
+            }
+        }
+
+        benchmark_file << n << "," << p << "," << m;
+
+        for (auto trial = 0; trial < num_trials; ++trial) {
+            std::vector<double> C_test = C;
+            auto elapsed_time = benchmark([&]() {
+                // Call the matrix multiplication function here
+                matmul_neon_kernel_launcher(n, p, m, A.data(), p, B.data(), m, C_test.data(), m);
+            });
+            auto flops = flop_count / elapsed_time * 1e-9; // Convert to GFLOPS
+            benchmark_file << "," << flops;
+        }
+
+        if (perform_checks) {
+            benchmark_file << ',' << (verified ? "True" : "False");
+        }
+
+        benchmark_file << std::endl;
+    }
+
+    benchmark_file.close();
+    std::cout << "Benchmarking completed. Results saved to benchmark_results.csv." << std::endl;
+    
+    return 0;  
 }
