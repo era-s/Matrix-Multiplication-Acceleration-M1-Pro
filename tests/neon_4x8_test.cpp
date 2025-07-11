@@ -9,7 +9,7 @@
 // Define block sizes
 #define NR 4
 #define MR 8
-#define KC 192
+#define PC 192
 #define NC 1536
 #define MC 512
 
@@ -22,17 +22,15 @@
     #define ALIGN(x)
 #endif
 
-ALIGN(CACHELINE) static double Apanel[KC * NC];
-ALIGN(CACHELINE) static double Bpanel[KC * MC];
+ALIGN(CACHELINE) static double Apanel[PC * NC];
+ALIGN(CACHELINE) static double Bpanel[PC * MC];
 // ALIGN(CACHELINE) static double C_temp[NC * MC];
 
-
-static inline void neon_kernel_4x8(const int P, const double * __restrict A, const int lda,
-                     const double * __restrict B, const int ldb,
-                     double * __restrict C, const int ldc) {
-    
-    // C 로드
-    // 똥 neon은 256byte 없음 128 나눠서
+static inline void neon_kernel_4x8(const int P, const double *__restrict A,
+                                   const int lda,
+                                   const double *__restrict B, const int ldb,
+                                   double *__restrict C, const int ldc)
+{
     float64x2_t c00 = vld1q_f64(C + 0 * ldc);       float64x2_t c01 = vld1q_f64(C + 0 * ldc + 2);
     float64x2_t c02 = vld1q_f64(C + 0 * ldc + 4);   float64x2_t c03 = vld1q_f64(C + 0 * ldc + 6);
 
@@ -45,25 +43,17 @@ static inline void neon_kernel_4x8(const int P, const double * __restrict A, con
     float64x2_t c30 = vld1q_f64(C + 3 * ldc);       float64x2_t c31 = vld1q_f64(C + 3 * ldc + 2);
     float64x2_t c32 = vld1q_f64(C + 3 * ldc + 4);   float64x2_t c33 = vld1q_f64(C + 3 * ldc + 6);
 
-    for (auto l = 0; l < P; l++) {
-        // A 로드 (transpose됨)
-        // float64x2_t a0 = vdupq_n_f64(A[l * lda + 0]);
-        // float64x2_t a1 = vdupq_n_f64(A[l * lda + 1]);
-        // float64x2_t a2 = vdupq_n_f64(A[l * lda + 2]);
-        // float64x2_t a3 = vdupq_n_f64(A[l * lda + 3]);
+    for (int l = 0; l < P; ++l) {
         float64x2_t a0 = vld1q_dup_f64(A + l * lda + 0);
         float64x2_t a1 = vld1q_dup_f64(A + l * lda + 1);
         float64x2_t a2 = vld1q_dup_f64(A + l * lda + 2);
         float64x2_t a3 = vld1q_dup_f64(A + l * lda + 3);
-        
 
-        // B 로드
         float64x2_t b0 = vld1q_f64(B + l * ldb + 0);
         float64x2_t b1 = vld1q_f64(B + l * ldb + 2);
         float64x2_t b2 = vld1q_f64(B + l * ldb + 4);
         float64x2_t b3 = vld1q_f64(B + l * ldb + 6);
 
-        // C 업데이트
         c00 = vfmaq_f64(c00, a0, b0); c01 = vfmaq_f64(c01, a0, b1);
         c02 = vfmaq_f64(c02, a0, b2); c03 = vfmaq_f64(c03, a0, b3);
 
@@ -77,7 +67,6 @@ static inline void neon_kernel_4x8(const int P, const double * __restrict A, con
         c32 = vfmaq_f64(c32, a3, b2); c33 = vfmaq_f64(c33, a3, b3);
     }
 
-    // C 저장
     vst1q_f64(C + 0 * ldc, c00);        vst1q_f64(C + 0 * ldc + 2, c01);
     vst1q_f64(C + 0 * ldc + 4, c02);    vst1q_f64(C + 0 * ldc + 6, c03);
 
@@ -86,56 +75,53 @@ static inline void neon_kernel_4x8(const int P, const double * __restrict A, con
 
     vst1q_f64(C + 2 * ldc, c20);        vst1q_f64(C + 2 * ldc + 2, c21);
     vst1q_f64(C + 2 * ldc + 4, c22);    vst1q_f64(C + 2 * ldc + 6, c23);
-    
+
     vst1q_f64(C + 3 * ldc, c30);        vst1q_f64(C + 3 * ldc + 2, c31);
     vst1q_f64(C + 3 * ldc + 4, c32);    vst1q_f64(C + 3 * ldc + 6, c33);
 }
 
 void matmul_neon_kernel_launcher(const int n, const int p, const int m,
-                                    const double * __restrict A, const int lda,
-                                    const double * __restrict B, const int ldb,
-                                    double * __restrict C, const int ldc) {
-    
-    for (auto  i = 0; i < n; i += NC) {
-        auto nc = std::min(NC, n - i);
-        for (auto k = 0; k < p; k += KC) {
-            auto kc = std::min(KC, p - k);
-            for (auto ir = 0; ir < nc; ir += NR) {
-                auto nr = std::min(NR, nc - ir);
-                for (auto ii = 0; ii < nr; ii++) {
-                    for (auto l = 0; l < kc; l++) {
-                        Apanel[l * NR + ii] = A[(i + ir + ii) * lda + (k + l)];
-                    }
-                    for (auto l = kc; l < NR; l++) {
-                        Apanel[l * NR + ii] = 0.0; // Fill with zeros if NR > nr
-                    }
-                }
+                                 const double *__restrict A, const int lda,
+                                 const double *__restrict B, const int ldb,
+                                 double *__restrict C, const int ldc)
+{
+    for (int i = 0; i < n; i += NC) {
+        int nc = std::min(NC, n - i);
+        for (int k = 0; k < p; k += PC) {
+            int kc = std::min(PC, p - k);
+
+            for (int ir = 0; ir < nc; ir += NR) {
+                int nr = std::min(NR, nc - ir);
+                for (int ii = 0; ii < nr; ++ii)
+                    for (int l = 0; l < kc; ++l)
+                        if (ii < nr)
+                            Apanel[l * NC + (ir + ii)] = A[(i + ir + ii) * lda + k + l];
+                        else
+                            Apanel[l * NC + (ir + ii)] = 0.0;
             }
 
-            for (auto j = 0; j < m; j += MC) {
-                auto mc = std::min(MC, m - j);
+            for (int j = 0; j < m; j += MC) {
+                int mc = std::min(MC, m - j);
+                double *Cpanel = &C[i * ldc + j];
 
-                double *Cpanel = C + (i * ldc + j);
-
-                for (auto jr = 0; jr < mc; jr += MR) {
-                    auto mr = std::min(MR, mc - jr);
-                    for (auto l = 0; l < kc; l++) {
-                        for (auto jj = 0; jj < mr; jj++) {
-                            Bpanel[l * MR + jj] = B[(k + l) * ldb + (j + jr + jj)];
+                for (int jr = 0; jr < mc; jr += MR) {
+                    int mr = std::min(MR, mc - jr);
+                    for (int l = 0; l < kc; ++l) {
+                        for (int jj = 0; jj < MR; ++jj) {
+                            if (jj < mr)  // 체크
+                                Bpanel[l * MC + jr + jj] = B[(k + l) * ldb + (j + jr + jj)];
+                            else
+                                Bpanel[l * MC + jr + jj] = 0.0;
                         }
                     }
-                    // for (auto l = 0; l < kc; l++) {
-                    //     for (auto jj = mr; jj < MR; jj++) {
-                    //         Bpanel[l * MR + jj] = 0.0; // Fill with zeros if MR > mr
-                    //     }
-                    // }
                 }
-                
-                for (auto ir = 0; ir < nc; ir += NR) {
-                    double *Crow_ir = Cpanel + (ir * ldc);
-                    for (auto jr = 0; jr < mc; jr += MR) {
+
+                for (int ir = 0; ir < nc; ir += NR) {
+                    double *Crow_ir = Cpanel + ir * ldc;
+                    for (int jr = 0; jr < mc; jr += MR) {
                         double *Cblk = Crow_ir + jr;
-                        neon_kernel_4x8(kc, Apanel + ir * kc, NR, Bpanel + jr * kc, MR, Cblk, ldc);
+                        neon_kernel_4x8(kc, &Apanel[ir], NC,
+                                        &Bpanel[jr], MC, Cblk, ldc);
                     }
                 }
             }
