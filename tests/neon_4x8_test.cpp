@@ -9,8 +9,8 @@
 // Define block sizes
 #define NR 4
 #define MR 8
-#define PC 192
-#define NC 1408
+#define PC 168
+#define NC 704
 #define MC 256
 
 #define CACHELINE 64
@@ -85,48 +85,58 @@ void matmul_neon_kernel_launcher(const int n, const int p, const int m,
                                  const double *__restrict B, const int ldb,
                                  double *__restrict C, const int ldc)
 {
-    for (int i = 0; i < n; i += NC) {
+    for (int i = 0; i < n; i += NC) {          // ── ① 행 패널 (NC)
         int nc = std::min(NC, n - i);
-        for (int k = 0; k < p; k += PC) {
-            int kc = std::min(PC, p - k);
 
-            for (int ir = 0; ir < nc; ir += NR) {
-                int nr = std::min(NR, nc - ir);
-                for (int ii = 0; ii < nr; ++ii)
-                    for (int l = 0; l < kc; ++l)
-                        if (ii < nr)
-                            Apanel[l * NC + (ir + ii)] = A[(i + ir + ii) * lda + k + l];
-                        else
-                            Apanel[l * NC + (ir + ii)] = 0.0;
-            }
+        for (int j = 0; j < m; j += MC) {      // ── ② 열 패널 (MC)
+            int mc = std::min(MC, m - j);
+            double *Cpanel = &C[i * ldc + j];
 
-            for (int j = 0; j < m; j += MC) {
-                int mc = std::min(MC, m - j);
-                double *Cpanel = &C[i * ldc + j];
+            for (int k = 0; k < p; k += PC) {  // ── ③ KC-슬라이스
+                int kc = std::min(PC, p - k);
 
+                /* ---------- 3-A.  B패널 패킹 (kc × MC, 전치 포함) ---------- */
                 for (int jr = 0; jr < mc; jr += MR) {
                     int mr = std::min(MR, mc - jr);
                     for (int l = 0; l < kc; ++l) {
                         for (int jj = 0; jj < MR; ++jj) {
-                            if (jj < mr)  // 체크
-                                Bpanel[l * MC + jr + jj] = B[(k + l) * ldb + (j + jr + jj)];
+                            if (jj < mr)
+                                Bpanel[l * MC + jr + jj] =
+                                    B[(k + l) * ldb + (j + jr + jj)];
                             else
                                 Bpanel[l * MC + jr + jj] = 0.0;
                         }
                     }
                 }
 
+                /* ---------- 3-B.  A패널 패킹 (NC × kc) ---------- */
+                for (int ir = 0; ir < nc; ir += NR) {
+                    int nr = std::min(NR, nc - ir);
+                    for (int l = 0; l < kc; ++l) {
+                        for (int ii = 0; ii < NR; ++ii) {
+                            if (ii < nr)
+                                Apanel[l * NC + (ir + ii)] =
+                                    A[(i + ir + ii) * lda + k + l];
+                            else
+                                Apanel[l * NC + (ir + ii)] = 0.0;
+                        }
+                    }
+                }
+
+                /* ---------- 3-C.  마이크로커널 호출 ---------- */
                 for (int ir = 0; ir < nc; ir += NR) {
                     double *Crow_ir = Cpanel + ir * ldc;
                     for (int jr = 0; jr < mc; jr += MR) {
                         double *Cblk = Crow_ir + jr;
-                        neon_kernel_4x8(kc, &Apanel[ir], NC,
-                                        &Bpanel[jr], MC, Cblk, ldc);
+                        neon_kernel_4x8(kc,
+                                        &Apanel[ir], NC,     // A패널: kc가 빠른 축
+                                        &Bpanel[jr], MC,     // B패널: kc가 빠른 축
+                                        Cblk, ldc);
                     }
                 }
-            }
-        }
-    }
+            } /* k-loop */
+        } /* j-loop */
+    } /* i-loop */
 }
 
 void matmul_naive(const int n, const int p, const int m, const double* A, const int lda,
