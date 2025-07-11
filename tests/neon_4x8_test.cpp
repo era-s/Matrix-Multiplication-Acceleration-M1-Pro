@@ -10,8 +10,8 @@
 #define NR 4
 #define MR 8
 #define PC 192
-#define NC 1536
-#define MC 512
+#define NC 1408
+#define MC 256
 
 #define CACHELINE 64
 #if defined(__GNUC__) || defined(__clang__)
