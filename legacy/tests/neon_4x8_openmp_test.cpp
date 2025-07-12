@@ -13,9 +13,9 @@
 // Define block sizes
 #define NR 4
 #define MR 8
-#define PC 192
-#define NC 1408
-#define MC 256
+#define PC 168
+#define NC 672
+#define MC 128
 
 #define CACHELINE 64
 #if defined(__GNUC__) || defined(__clang__)
@@ -26,11 +26,13 @@
     #define ALIGN(x)
 #endif
 
-ALIGN(CACHELINE) static double Apanel[PC * NC];
-ALIGN(CACHELINE) static double Bpanel[PC * MC];
-// ALIGN(CACHELINE) static double C_temp[NC * MC];
+// ALIGN(CACHELINE) static double Apanel[PC * NC] __attribute__((aligned(4096)));
+// ALIGN(CACHELINE) static double Bpanel[PC * MC] __attribute__((aligned(4096))); // B panel with transpose orientation
 
-static inline void neon_kernel_4x8(const int P, const double *__restrict A,
+// ALIGN(CACHELINE) static double Apanel[PC * NC];
+// ALIGN(CACHELINE) static double Bpanel[PC * MC];
+
+void neon_kernel_4x8(const int P, const double *__restrict A,
                                    const int lda,
                                    const double *__restrict B, const int ldb,
                                    double *__restrict C, const int ldc)
@@ -84,54 +86,73 @@ static inline void neon_kernel_4x8(const int P, const double *__restrict A,
     vst1q_f64(C + 3 * ldc + 4, c32);    vst1q_f64(C + 3 * ldc + 6, c33);
 }
 
+inline void pack_blockB(const double * __restrict B, int ldb,
+                int p, int j, int mc, int kc, double * __restrict Bpanel) {
+    for (int jr = 0; jr < mc; jr += MR) {
+        int mr = std::min(MR, mc - jr);
+        // Avoid intermediate pointers and const_cast
+        for (int l = 0; l < kc; ++l) {
+            for (int jj = 0; jj < mr; ++jj)
+                Bpanel[l * MC + jr + jj] = B[(p + l) * ldb + (j + jr + jj)];
+            for (int jj = mr; jj < MR; ++jj)
+                Bpanel[l * MC + jr + jj] = 0.0;
+        }
+    }
+}
+
+// Optimized packing function for A - force inlining
+inline void pack_blockA(const double * __restrict A, int lda,
+                int i, int p, int nc, int kc, double * __restrict Apanel) {
+    for (int ir = 0; ir < nc; ir += NR) {
+        // Eliminate nested function call
+        for (int l = 0; l < kc; ++l) {
+            for (int ii = 0; ii < NR; ++ii) {
+                Apanel[l * NC + (ir + ii)] = A[(i + ir + ii) * lda + p + l];
+            }
+        }
+    }
+}
+
 void matmul_neon_kernel_launcher(const int n, const int p, const int m,
                                  const double *__restrict A, const int lda,
                                  const double *__restrict B, const int ldb,
                                  double *__restrict C, const int ldc)
 {
-
-    #pragma omp for collapse(2) schedule(static)
-    for (int i = 0; i < n; i += NC) {
-        int nc = std::min(NC, n - i);
-        for (int k = 0; k < p; k += PC) {
-            int kc = std::min(PC, p - k);
-
-            for (int ir = 0; ir < nc; ir += NR) {
-                int nr = std::min(NR, nc - ir);
-                for (int ii = 0; ii < nr; ++ii)
-                    for (int l = 0; l < kc; ++l)
-                        if (ii < nr)
-                            Apanel[l * NC + (ir + ii)] = A[(i + ir + ii) * lda + k + l];
-                        else
-                            Apanel[l * NC + (ir + ii)] = 0.0;
-            }
-
-            for (int j = 0; j < m; j += MC) {
+    #pragma omp parallel
+    {
+        ALIGN(CACHELINE) double Apanel_local[PC * NC] __attribute__((aligned(4096)));
+        ALIGN(CACHELINE) double Bpanel_local[PC * MC] __attribute__((aligned(4096)));
+        
+        #pragma omp for collapse(2) schedule(static)
+        for (int i = 0; i < n; i += NC) {          
+            for (int j = 0; j < m; j += MC) { 
+                int nc = std::min(NC, n - i);     
                 int mc = std::min(MC, m - j);
                 double *Cpanel = &C[i * ldc + j];
 
-                for (int jr = 0; jr < mc; jr += MR) {
-                    int mr = std::min(MR, mc - jr);
-                    for (int l = 0; l < kc; ++l) {
-                        for (int jj = 0; jj < MR; ++jj) {
-                            if (jj < mr)  // 체크
-                                Bpanel[l * MC + jr + jj] = B[(k + l) * ldb + (j + jr + jj)];
-                            else
-                                Bpanel[l * MC + jr + jj] = 0.0;
+                for (int k = 0; k < p; k += PC) { 
+                    int kc = std::min(PC, p - k);
+
+                    /* ---------- 3-A.  B패널 패킹 (kc × MC, 전치 포함) ---------- */
+                    pack_blockB(B, ldb, k, j, mc, kc, Bpanel_local);
+
+                    /* ---------- 3-B.  A패널 패킹 (NC × kc) ---------- */
+                    pack_blockA(A, lda, i, k, nc, kc, Apanel_local);
+
+                    /* ---------- 3-C.  마이크로커널 호출 ---------- */
+                    for (int ir = 0; ir < nc; ir += NR) {
+                        double *Crow_ir = Cpanel + ir * ldc;
+                        for (int jr = 0; jr < mc; jr += MR) {
+                            double *Cblk = Crow_ir + jr;
+                            neon_kernel_4x8(kc,
+                                            &Apanel_local[ir], NC,     // A패널: kc가 빠른 축
+                                            &Bpanel_local[jr], MC,     // B패널: kc가 빠른 축
+                                            Cblk, ldc);
                         }
                     }
-                }
-
-                for (int ir = 0; ir < nc; ir += NR) {
-                    double *Crow_ir = Cpanel + ir * ldc;
-                    for (int jr = 0; jr < mc; jr += MR) {
-                        double *Cblk = Crow_ir + jr;
-                        neon_kernel_4x8(kc, &Apanel[ir], NC,
-                                        &Bpanel[jr], MC, Cblk, ldc);
-                    }
-                }
-            }
-        }
+                } /* k-loop */
+            } /* j-loop */
+        } /* i-loop */
     }
 }
 
@@ -194,6 +215,7 @@ double benchmark(Func func) {
 }
 
 int main(int argc, char* argv[]) {
+
     auto perform_checks = true;
     for (auto i = 1; i < argc; ++i) {
         if (std::string(argv[i]) == "--no-checks") {

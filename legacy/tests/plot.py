@@ -107,9 +107,9 @@ def read_and_plot_csv(main_csv="benchmark_results.csv",
 
     # キャッシュ境界（L1/L2, L2/L3, L3/Memory）を示す縦線とラベル
     boundaries = [
-        (128, 'L1'),
-        (724, 'L2'),
-        (1674, 'DRAM'),
+        (90, 'L1'),
+        (867, 'L2'),
+        (1225, 'SLC'),
     ]
     ymin, ymax = plt.ylim()
     for x, label in boundaries:
