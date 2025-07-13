@@ -3,3 +3,5 @@
 a.out
 *.o
 a
+openblas_test
+.DS_Store
