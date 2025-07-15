@@ -74,7 +74,6 @@ double benchmark(Func func) {
 }
 
 int main(int argc, char* argv[]) {
-    // openblas_set_num_threads(1);
     auto perform_checks = true;
     for (auto i = 1; i < argc; ++i) {
         if (std::string(argv[i]) == "--no-checks") {
@@ -131,8 +130,10 @@ int main(int argc, char* argv[]) {
             std::vector<double> C_test = C;
             auto elapsed_time = benchmark([&]() {
                 // Call the matrix multiplication function here
+                openblas_set_num_threads(1);
                 cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
                 n, m, p, 1.0, A.data(), p, B.data(), m, 0.0, C_test.data(), m);
+                // std::cout << "OpenBLAS threads: " << openblas_get_num_threads() << std::endl;
             });
             auto flops = flop_count / elapsed_time * 1e-9; // Convert to GFLOPS
             benchmark_file << "," << flops;

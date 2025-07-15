@@ -9,9 +9,13 @@
 // Define block sizes
 #define NR 4
 #define MR 8
-#define PC 168
-#define NC 704
-#define MC 256
+#define PC 64
+#define NC 768
+#define MC 128
+
+// #define PC 168
+// #define NC 704
+// #define MC 256
 
 #define CACHELINE 64
 #if defined(__GNUC__) || defined(__clang__)
@@ -22,8 +26,11 @@
     #define ALIGN(x)
 #endif
 
-ALIGN(CACHELINE) static double Apanel[PC * NC];
-ALIGN(CACHELINE) static double Bpanel[PC * MC];
+// ALIGN(CACHELINE) static double Apanel[PC * NC];
+// ALIGN(CACHELINE) static double Bpanel[PC * MC];
+
+ALIGN(CACHELINE) static double Apanel[PC * NC] __attribute__((aligned(4096)));
+ALIGN(CACHELINE) static double Bpanel[PC * MC] __attribute__((aligned(4096)));
 // ALIGN(CACHELINE) static double C_temp[NC * MC];
 
 static inline void neon_kernel_4x8(const int P, const double *__restrict A,
