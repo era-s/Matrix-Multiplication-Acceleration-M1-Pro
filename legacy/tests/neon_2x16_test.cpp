@@ -7,12 +7,12 @@
 #include <random>
 
 // Define block sizes
-#define NR 4
-#define MR 8
+#define NR 2
+#define MR 16
 
-#define PC 4096 // 640 ~ 1320 ~1400 아니 왜 l1 보다 커져도 빠르지?
-#define NC 1408
-#define MC 512
+#define PC 64
+#define NC 1024
+#define MC 128
 
 // #define PC 256
 // #define MC 384   // 384×256×8 ≈ 768 KB
@@ -55,21 +55,19 @@ static inline void neon_kernel_4x8(const int kc,
     float64x2_t c01 = vld1q_f64(C + 0*ldC + 2);   /* 행 0, 열 2-3 */
     float64x2_t c02 = vld1q_f64(C + 0*ldC + 4);
     float64x2_t c03 = vld1q_f64(C + 0*ldC + 6);
+    float64x2_t c04 = vld1q_f64(C + 0*ldC + 8);
+    float64x2_t c05 = vld1q_f64(C + 0*ldC + 10);   
+    float64x2_t c06 = vld1q_f64(C + 0*ldC + 12);
+    float64x2_t c07 = vld1q_f64(C + 0*ldC + 14);
 
     float64x2_t c10 = vld1q_f64(C + 1*ldC + 0);
     float64x2_t c11 = vld1q_f64(C + 1*ldC + 2);
     float64x2_t c12 = vld1q_f64(C + 1*ldC + 4);
     float64x2_t c13 = vld1q_f64(C + 1*ldC + 6);
-
-    float64x2_t c20 = vld1q_f64(C + 2*ldC + 0);
-    float64x2_t c21 = vld1q_f64(C + 2*ldC + 2);
-    float64x2_t c22 = vld1q_f64(C + 2*ldC + 4);
-    float64x2_t c23 = vld1q_f64(C + 2*ldC + 6);
-
-    float64x2_t c30 = vld1q_f64(C + 3*ldC + 0);
-    float64x2_t c31 = vld1q_f64(C + 3*ldC + 2);
-    float64x2_t c32 = vld1q_f64(C + 3*ldC + 4);
-    float64x2_t c33 = vld1q_f64(C + 3*ldC + 6);
+    float64x2_t c14 = vld1q_f64(C + 1*ldC + 8);
+    float64x2_t c15 = vld1q_f64(C + 1*ldC + 10);
+    float64x2_t c16 = vld1q_f64(C + 1*ldC + 12);
+    float64x2_t c17 = vld1q_f64(C + 1*ldC + 14);
 
     /* --- kc-loop : 외적 ------------------------------------------------ */
     for (int l = 0; l < kc; ++l)
@@ -77,41 +75,39 @@ static inline void neon_kernel_4x8(const int kc,
         /* A – 각 행 스칼라 broadcast */
         float64x2_t a0 = vld1q_dup_f64(A + l*ldA + 0);
         float64x2_t a1 = vld1q_dup_f64(A + l*ldA + 1);
-        float64x2_t a2 = vld1q_dup_f64(A + l*ldA + 2);
-        float64x2_t a3 = vld1q_dup_f64(A + l*ldA + 3);
 
         /* B – kc 행 한 줄을 8-열(4×2) 로드 */
-        float64x2_t b0 = vld1q_f64(B + l*ldB + 0);  /* 열 0-1 */
-        float64x2_t b1 = vld1q_f64(B + l*ldB + 2);  /* 열 2-3 */
-        float64x2_t b2 = vld1q_f64(B + l*ldB + 4);  /* 열 4-5 */
-        float64x2_t b3 = vld1q_f64(B + l*ldB + 6);  /* 열 6-7 */
+        float64x2_t b0 = vld1q_f64(B + l*ldB + 0);  
+        float64x2_t b1 = vld1q_f64(B + l*ldB + 2);  
+        float64x2_t b2 = vld1q_f64(B + l*ldB + 4);  
+        float64x2_t b3 = vld1q_f64(B + l*ldB + 6);  
+        float64x2_t b4 = vld1q_f64(B + l*ldB + 8);  
+        float64x2_t b5 = vld1q_f64(B + l*ldB + 10);  
+        float64x2_t b6 = vld1q_f64(B + l*ldB + 12);  
+        float64x2_t b7 = vld1q_f64(B + l*ldB + 14);  
 
         /* FMA : C += A_row × B_col */
         c00 = vfmaq_f64(c00, a0, b0);  c01 = vfmaq_f64(c01, a0, b1);
         c02 = vfmaq_f64(c02, a0, b2);  c03 = vfmaq_f64(c03, a0, b3);
+        c04 = vfmaq_f64(c04, a0, b4);  c05 = vfmaq_f64(c05, a0, b5);
+        c06 = vfmaq_f64(c06, a0, b6);  c07 = vfmaq_f64(c07, a0, b7);
 
         c10 = vfmaq_f64(c10, a1, b0);  c11 = vfmaq_f64(c11, a1, b1);
         c12 = vfmaq_f64(c12, a1, b2);  c13 = vfmaq_f64(c13, a1, b3);
-
-        c20 = vfmaq_f64(c20, a2, b0);  c21 = vfmaq_f64(c21, a2, b1);
-        c22 = vfmaq_f64(c22, a2, b2);  c23 = vfmaq_f64(c23, a2, b3);
-
-        c30 = vfmaq_f64(c30, a3, b0);  c31 = vfmaq_f64(c31, a3, b1);
-        c32 = vfmaq_f64(c32, a3, b2);  c33 = vfmaq_f64(c33, a3, b3);
+        c14 = vfmaq_f64(c14, a1, b4);  c15 = vfmaq_f64(c15, a1, b5);
+        c16 = vfmaq_f64(c16, a1, b6);  c17 = vfmaq_f64(c17, a1, b7);
     }
 
     /* --- 결과 저장 ----------------------------------------------------- */
     vst1q_f64(C + 0*ldC + 0, c00);  vst1q_f64(C + 0*ldC + 2, c01);
     vst1q_f64(C + 0*ldC + 4, c02);  vst1q_f64(C + 0*ldC + 6, c03);
+    vst1q_f64(C + 0*ldC + 8, c04);  vst1q_f64(C + 0*ldC + 10, c05);
+    vst1q_f64(C + 0*ldC + 12, c06);  vst1q_f64(C + 0*ldC + 14, c07);
 
     vst1q_f64(C + 1*ldC + 0, c10);  vst1q_f64(C + 1*ldC + 2, c11);
     vst1q_f64(C + 1*ldC + 4, c12);  vst1q_f64(C + 1*ldC + 6, c13);
-
-    vst1q_f64(C + 2*ldC + 0, c20);  vst1q_f64(C + 2*ldC + 2, c21);
-    vst1q_f64(C + 2*ldC + 4, c22);  vst1q_f64(C + 2*ldC + 6, c23);
-
-    vst1q_f64(C + 3*ldC + 0, c30);  vst1q_f64(C + 3*ldC + 2, c31);
-    vst1q_f64(C + 3*ldC + 4, c32);  vst1q_f64(C + 3*ldC + 6, c33);
+    vst1q_f64(C + 1*ldC + 8, c14);  vst1q_f64(C + 1*ldC + 10, c15);
+    vst1q_f64(C + 1*ldC + 12, c16);  vst1q_f64(C + 1*ldC + 14, c17);
 }
 
 /*------------------------------------------------------------*/
@@ -265,13 +261,13 @@ int main(int argc, char* argv[]) {
 
     std::vector<int>sizes;
 
-    for (auto size = 4; size <= 124; size += 4) {
+    for (auto size = 16; size <= 4096; size += 16) {
         sizes.push_back(size);
     }
 
-    for (auto size = 128; size <= 4096; size += 8) {
-        sizes.push_back(size);
-    }
+    // for (auto size = 128; size <= 4096; size += 8) {
+    //     sizes.push_back(size);
+    // }
 
     const int num_trials = 5;
 

@@ -8,20 +8,11 @@
 
 // Define block sizes
 #define NR 4
-#define MR 8
+#define MR 4
 
 #define PC 4096 // 640 ~ 1320 ~1400 아니 왜 l1 보다 커져도 빠르지?
 #define NC 1408
-#define MC 512
-
-// #define PC 256
-// #define MC 384   // 384×256×8 ≈ 768 KB
-// #define NC 1280  // 1280×256×8 ≈ 2.5 MB
-
-
-// #define PC 64
-// #define NC 1008
-// #define MC 128
+#define MC 768
 
 #define CACHELINE 64
 #if defined(__GNUC__) || defined(__clang__)
@@ -32,86 +23,47 @@
     #define ALIGN(x)
 #endif
 
-// ALIGN(CACHELINE) static double Apanel[PC * NC];
-// ALIGN(CACHELINE) static double Bpanel[PC * MC];
 ALIGN(CACHELINE) static double Apanel[PC * NC] __attribute__((aligned(16384)));
 ALIGN(CACHELINE) static double Bpanel[MC * PC] __attribute__((aligned(16384)));
-// ALIGN(CACHELINE) static double Apanel[PC * NC] __attribute__((aligned(4096)));
-// ALIGN(CACHELINE) static double Bpanel[PC * MC] __attribute__((aligned(4096)));
-// ALIGN(CACHELINE) static double C_temp[NC * MC];
 
-/* 4×8 NEON micro-kernel  —  Row-major
- *  A : MR(4)×kc  col-major (ldA = NR)
- *  B : kc×NR(8)  row-major (ldB = MR)
- *  C : MR×NR     row-major (ldC = 전체 열 m)
- */
-static inline void neon_kernel_4x8(const int kc,
+static inline void neon_kernel_4x4(const int kc,
                                    const double* __restrict A, const int ldA,
                                    const double* __restrict B, const int ldB,
                                    double*       __restrict C, const int ldC)
 {
-    /* --- C 4×8 블록 프롤로그 --------------------------------------- */
-    float64x2_t c00 = vld1q_f64(C + 0*ldC + 0);   /* 행 0, 열 0-1 */
-    float64x2_t c01 = vld1q_f64(C + 0*ldC + 2);   /* 행 0, 열 2-3 */
-    float64x2_t c02 = vld1q_f64(C + 0*ldC + 4);
-    float64x2_t c03 = vld1q_f64(C + 0*ldC + 6);
+    float64x2_t c00 = vld1q_f64(C + 0*ldC + 0);
+    float64x2_t c01 = vld1q_f64(C + 0*ldC + 2);   
 
     float64x2_t c10 = vld1q_f64(C + 1*ldC + 0);
     float64x2_t c11 = vld1q_f64(C + 1*ldC + 2);
-    float64x2_t c12 = vld1q_f64(C + 1*ldC + 4);
-    float64x2_t c13 = vld1q_f64(C + 1*ldC + 6);
 
     float64x2_t c20 = vld1q_f64(C + 2*ldC + 0);
     float64x2_t c21 = vld1q_f64(C + 2*ldC + 2);
-    float64x2_t c22 = vld1q_f64(C + 2*ldC + 4);
-    float64x2_t c23 = vld1q_f64(C + 2*ldC + 6);
 
     float64x2_t c30 = vld1q_f64(C + 3*ldC + 0);
     float64x2_t c31 = vld1q_f64(C + 3*ldC + 2);
-    float64x2_t c32 = vld1q_f64(C + 3*ldC + 4);
-    float64x2_t c33 = vld1q_f64(C + 3*ldC + 6);
 
-    /* --- kc-loop : 외적 ------------------------------------------------ */
     for (int l = 0; l < kc; ++l)
     {
-        /* A – 각 행 스칼라 broadcast */
         float64x2_t a0 = vld1q_dup_f64(A + l*ldA + 0);
         float64x2_t a1 = vld1q_dup_f64(A + l*ldA + 1);
         float64x2_t a2 = vld1q_dup_f64(A + l*ldA + 2);
         float64x2_t a3 = vld1q_dup_f64(A + l*ldA + 3);
 
-        /* B – kc 행 한 줄을 8-열(4×2) 로드 */
-        float64x2_t b0 = vld1q_f64(B + l*ldB + 0);  /* 열 0-1 */
-        float64x2_t b1 = vld1q_f64(B + l*ldB + 2);  /* 열 2-3 */
-        float64x2_t b2 = vld1q_f64(B + l*ldB + 4);  /* 열 4-5 */
-        float64x2_t b3 = vld1q_f64(B + l*ldB + 6);  /* 열 6-7 */
+        float64x2_t b0 = vld1q_f64(B + l*ldB + 0);  
+        float64x2_t b1 = vld1q_f64(B + l*ldB + 2);   
 
-        /* FMA : C += A_row × B_col */
         c00 = vfmaq_f64(c00, a0, b0);  c01 = vfmaq_f64(c01, a0, b1);
-        c02 = vfmaq_f64(c02, a0, b2);  c03 = vfmaq_f64(c03, a0, b3);
-
         c10 = vfmaq_f64(c10, a1, b0);  c11 = vfmaq_f64(c11, a1, b1);
-        c12 = vfmaq_f64(c12, a1, b2);  c13 = vfmaq_f64(c13, a1, b3);
-
         c20 = vfmaq_f64(c20, a2, b0);  c21 = vfmaq_f64(c21, a2, b1);
-        c22 = vfmaq_f64(c22, a2, b2);  c23 = vfmaq_f64(c23, a2, b3);
-
         c30 = vfmaq_f64(c30, a3, b0);  c31 = vfmaq_f64(c31, a3, b1);
-        c32 = vfmaq_f64(c32, a3, b2);  c33 = vfmaq_f64(c33, a3, b3);
     }
 
-    /* --- 결과 저장 ----------------------------------------------------- */
     vst1q_f64(C + 0*ldC + 0, c00);  vst1q_f64(C + 0*ldC + 2, c01);
-    vst1q_f64(C + 0*ldC + 4, c02);  vst1q_f64(C + 0*ldC + 6, c03);
-
     vst1q_f64(C + 1*ldC + 0, c10);  vst1q_f64(C + 1*ldC + 2, c11);
-    vst1q_f64(C + 1*ldC + 4, c12);  vst1q_f64(C + 1*ldC + 6, c13);
-
     vst1q_f64(C + 2*ldC + 0, c20);  vst1q_f64(C + 2*ldC + 2, c21);
-    vst1q_f64(C + 2*ldC + 4, c22);  vst1q_f64(C + 2*ldC + 6, c23);
-
     vst1q_f64(C + 3*ldC + 0, c30);  vst1q_f64(C + 3*ldC + 2, c31);
-    vst1q_f64(C + 3*ldC + 4, c32);  vst1q_f64(C + 3*ldC + 6, c33);
+
 }
 
 /*------------------------------------------------------------*/
@@ -176,7 +128,7 @@ void matmul_neon_kernel_launcher(int n,  /* A rows / C rows           */
                     for (int jr = 0; jr < mc; jr += MR)
                     {
                         double* Cblk = Crow + jr;         /* 4×8 타일 */
-                        neon_kernel_4x8(kc,
+                        neon_kernel_4x4(kc,
                                         Apanel + ir*kc, NR,   /* A 패널 */
                                         Bpanel + jr*kc, MR,   /* B 패널 */
                                         Cblk, ldc);           /* C */
@@ -265,13 +217,13 @@ int main(int argc, char* argv[]) {
 
     std::vector<int>sizes;
 
-    for (auto size = 4; size <= 124; size += 4) {
+    for (auto size = 16; size <= 4096; size += 16) {
         sizes.push_back(size);
     }
 
-    for (auto size = 128; size <= 4096; size += 8) {
-        sizes.push_back(size);
-    }
+    // for (auto size = 128; size <= 4096; size += 8) {
+    //     sizes.push_back(size);
+    // }
 
     const int num_trials = 5;
 
