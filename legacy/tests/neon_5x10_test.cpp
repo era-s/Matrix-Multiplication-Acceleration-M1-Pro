@@ -10,6 +10,10 @@
 #define NR 5
 #define MR 10
 
+// #define PC 4000 // 640 ~ 1320 ~1400 아니 왜 l1 보다 커져도 빠르지?
+// #define NC 1400
+// #define MC 760
+
 #define PC 100
 #define NC 400
 #define MC 120

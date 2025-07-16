@@ -7,20 +7,20 @@
 #include <random>
 
 // Define block sizes
-#define NR 10
-#define MR 4
+#define NR 14
+#define MR 2
 
-// #define PC 4000
+// #define PC 280 // 640 ~ 1320 ~1400 아니 왜 l1 보다 커져도 빠르지?
 // #define NC 1400
-// #define MC 760
+// #define MC 560
 
-// #define PC 640 // 이게 45 GFLOPS 찍음
-// #define NC 520
-// #define MC 256
+// #define PC 280 // 640 ~ 1320 ~1400 아니 왜 l1 보다 커져도 빠르지?
+// #define NC 2800
+// #define MC 140
 
-#define PC 640 // 이거 내일 벤치 돌려보자 무조건 46 GFLOPS 나올듯?
-#define NC 520
-#define MC 768
+#define PC 560 // 640 ~ 1320 ~1400 아니 왜 l1 보다 커져도 빠르지?
+#define NC 420
+#define MC 256
 
 #define CACHELINE 64
 #if defined(__GNUC__) || defined(__clang__)
@@ -34,40 +34,25 @@
 ALIGN(CACHELINE) static double Apanel[PC * NC] __attribute__((aligned(16384)));
 ALIGN(CACHELINE) static double Bpanel[MC * PC] __attribute__((aligned(16384)));
 
-static inline void neon_kernel_10x4(const int kc,
+static inline void neon_kernel_14x2(const int kc,
                                    const double* __restrict A, const int ldA,
                                    const double* __restrict B, const int ldB,
                                    double*       __restrict C, const int ldC)
 {
-    float64x2_t c00 = vld1q_f64(C + 0*ldC + 0);
-    float64x2_t c01 = vld1q_f64(C + 0*ldC + 2);   
-
-    float64x2_t c10 = vld1q_f64(C + 1*ldC + 0);
-    float64x2_t c11 = vld1q_f64(C + 1*ldC + 2);
-
-    float64x2_t c20 = vld1q_f64(C + 2*ldC + 0);
-    float64x2_t c21 = vld1q_f64(C + 2*ldC + 2);
-
-    float64x2_t c30 = vld1q_f64(C + 3*ldC + 0);
-    float64x2_t c31 = vld1q_f64(C + 3*ldC + 2);
-
-    float64x2_t c40 = vld1q_f64(C + 4*ldC + 0);
-    float64x2_t c41 = vld1q_f64(C + 4*ldC + 2);
-
-    float64x2_t c50 = vld1q_f64(C + 5*ldC + 0);
-    float64x2_t c51 = vld1q_f64(C + 5*ldC + 2);
-
-    float64x2_t c60 = vld1q_f64(C + 6*ldC + 0);
-    float64x2_t c61 = vld1q_f64(C + 6*ldC + 2);
-
-    float64x2_t c70 = vld1q_f64(C + 7*ldC + 0);
-    float64x2_t c71 = vld1q_f64(C + 7*ldC + 2);
-
-    float64x2_t c80 = vld1q_f64(C + 8*ldC + 0);
-    float64x2_t c81 = vld1q_f64(C + 8*ldC + 2);
-
-    float64x2_t c90 = vld1q_f64(C + 9*ldC + 0);
-    float64x2_t c91 = vld1q_f64(C + 9*ldC + 2);
+    float64x2_t c0 = vld1q_f64(C + 0*ldC + 0);
+    float64x2_t c1 = vld1q_f64(C + 1*ldC + 0);
+    float64x2_t c2 = vld1q_f64(C + 2*ldC + 0);
+    float64x2_t c3 = vld1q_f64(C + 3*ldC + 0);
+    float64x2_t c4 = vld1q_f64(C + 4*ldC + 0);
+    float64x2_t c5 = vld1q_f64(C + 5*ldC + 0);
+    float64x2_t c6 = vld1q_f64(C + 6*ldC + 0);
+    float64x2_t c7 = vld1q_f64(C + 7*ldC + 0);
+    float64x2_t c8 = vld1q_f64(C + 8*ldC + 0);
+    float64x2_t c9 = vld1q_f64(C + 9*ldC + 0);
+    float64x2_t c10 = vld1q_f64(C + 10*ldC + 0);
+    float64x2_t c11 = vld1q_f64(C + 11*ldC + 0);
+    float64x2_t c12 = vld1q_f64(C + 12*ldC + 0);
+    float64x2_t c13 = vld1q_f64(C + 13*ldC + 0);
 
     for (int l = 0; l < kc; ++l)
     {
@@ -81,32 +66,44 @@ static inline void neon_kernel_10x4(const int kc,
         float64x2_t a7 = vld1q_dup_f64(A + l*ldA + 7);
         float64x2_t a8 = vld1q_dup_f64(A + l*ldA + 8);
         float64x2_t a9 = vld1q_dup_f64(A + l*ldA + 9);
+        float64x2_t a10 = vld1q_dup_f64(A + l*ldA + 10);
+        float64x2_t a11 = vld1q_dup_f64(A + l*ldA + 11);
+        float64x2_t a12 = vld1q_dup_f64(A + l*ldA + 12);
+        float64x2_t a13 = vld1q_dup_f64(A + l*ldA + 13);
 
         float64x2_t b0 = vld1q_f64(B + l*ldB + 0);  
-        float64x2_t b1 = vld1q_f64(B + l*ldB + 2);   
 
-        c00 = vfmaq_f64(c00, a0, b0);  c01 = vfmaq_f64(c01, a0, b1);
-        c10 = vfmaq_f64(c10, a1, b0);  c11 = vfmaq_f64(c11, a1, b1);
-        c20 = vfmaq_f64(c20, a2, b0);  c21 = vfmaq_f64(c21, a2, b1);
-        c30 = vfmaq_f64(c30, a3, b0);  c31 = vfmaq_f64(c31, a3, b1);
-        c40 = vfmaq_f64(c40, a4, b0);  c41 = vfmaq_f64(c41, a4, b1);
-        c50 = vfmaq_f64(c50, a5, b0);  c51 = vfmaq_f64(c51, a5, b1);
-        c60 = vfmaq_f64(c60, a6, b0);  c61 = vfmaq_f64(c61, a6, b1);
-        c70 = vfmaq_f64(c70, a7, b0);  c71 = vfmaq_f64(c71, a7, b1);
-        c80 = vfmaq_f64(c80, a8, b0);  c81 = vfmaq_f64(c81, a8, b1);
-        c90 = vfmaq_f64(c90, a9, b0);  c91 = vfmaq_f64(c91, a9, b1);
+        c0 = vfmaq_f64(c0, a0, b0);
+        c1 = vfmaq_f64(c1, a1, b0);  
+        c2 = vfmaq_f64(c2, a2, b0);  
+        c3 = vfmaq_f64(c3, a3, b0);  
+        c4 = vfmaq_f64(c4, a4, b0);  
+        c5 = vfmaq_f64(c5, a5, b0);  
+        c6 = vfmaq_f64(c6, a6, b0);  
+        c7 = vfmaq_f64(c7, a7, b0);  
+        c8 = vfmaq_f64(c8, a8, b0);  
+        c9 = vfmaq_f64(c9, a9, b0);  
+        c10 = vfmaq_f64(c10, a10, b0);  
+        c11 = vfmaq_f64(c11, a11, b0);  
+        c12 = vfmaq_f64(c12, a12, b0);  
+        c13 = vfmaq_f64(c13, a13, b0);  
+
     }
 
-    vst1q_f64(C + 0*ldC + 0, c00);  vst1q_f64(C + 0*ldC + 2, c01);
-    vst1q_f64(C + 1*ldC + 0, c10);  vst1q_f64(C + 1*ldC + 2, c11);
-    vst1q_f64(C + 2*ldC + 0, c20);  vst1q_f64(C + 2*ldC + 2, c21);
-    vst1q_f64(C + 3*ldC + 0, c30);  vst1q_f64(C + 3*ldC + 2, c31);
-    vst1q_f64(C + 4*ldC + 0, c40);  vst1q_f64(C + 4*ldC + 2, c41);
-    vst1q_f64(C + 5*ldC + 0, c50);  vst1q_f64(C + 5*ldC + 2, c51);
-    vst1q_f64(C + 6*ldC + 0, c60);  vst1q_f64(C + 6*ldC + 2, c61);
-    vst1q_f64(C + 7*ldC + 0, c70);  vst1q_f64(C + 7*ldC + 2, c71);
-    vst1q_f64(C + 8*ldC + 0, c80);  vst1q_f64(C + 8*ldC + 2, c81);
-    vst1q_f64(C + 9*ldC + 0, c90);  vst1q_f64(C + 9*ldC + 2, c91);
+    vst1q_f64(C + 0*ldC + 0, c0);
+    vst1q_f64(C + 1*ldC + 0, c1);
+    vst1q_f64(C + 2*ldC + 0, c2);
+    vst1q_f64(C + 3*ldC + 0, c3);
+    vst1q_f64(C + 4*ldC + 0, c4);
+    vst1q_f64(C + 5*ldC + 0, c5);
+    vst1q_f64(C + 6*ldC + 0, c6);
+    vst1q_f64(C + 7*ldC + 0, c7);
+    vst1q_f64(C + 8*ldC + 0, c8);
+    vst1q_f64(C + 9*ldC + 0, c9);
+    vst1q_f64(C + 10*ldC + 0, c10);
+    vst1q_f64(C + 11*ldC + 0, c11);
+    vst1q_f64(C + 12*ldC + 0, c12);
+    vst1q_f64(C + 13*ldC + 0, c13);
 }
 
 /*------------------------------------------------------------*/
@@ -162,6 +159,7 @@ void matmul_neon_kernel_launcher(int n,  /* A rows / C rows           */
                             Adst[ii] = 0.0;
                     }
                 }
+
                 // double* Cpanel = C + (i)*ldc + j;         /* C(i,j) 블록 */
                 // for (int jr = 0; jr < mc; jr += MR)
                 // {
@@ -169,13 +167,13 @@ void matmul_neon_kernel_launcher(int n,  /* A rows / C rows           */
                 //     for (int ir = 0; ir < nc; ir += NR)
                 //     {
                 //         double* Cblk = Ccol + ir * ldc;         /* 4×8 타일 */
-                //         neon_kernel_10x4(kc,
+                //         neon_kernel_14x2(kc,
                 //                         Apanel + ir*kc, NR,   /* A 패널 */
                 //                         Bpanel + jr*kc, MR,   /* B 패널 */
                 //                         Cblk, ldc);           /* C */
                 //     }
                 // }
-
+                
                 /* ---- 마이크로-커널 호출 ------------------------------ */
                 double* Cpanel = C + (i)*ldc + j;         /* C(i,j) 블록 */
                 for (int ir = 0; ir < nc; ir += NR)
@@ -184,7 +182,7 @@ void matmul_neon_kernel_launcher(int n,  /* A rows / C rows           */
                     for (int jr = 0; jr < mc; jr += MR)
                     {
                         double* Cblk = Crow + jr;         /* 4×8 타일 */
-                        neon_kernel_10x4(kc,
+                        neon_kernel_14x2(kc,
                                         Apanel + ir*kc, NR,   /* A 패널 */
                                         Bpanel + jr*kc, MR,   /* B 패널 */
                                         Cblk, ldc);           /* C */
@@ -273,7 +271,7 @@ int main(int argc, char* argv[]) {
 
     std::vector<int>sizes;
 
-    for (auto size = 20; size <= 4096; size += 20) {
+    for (auto size = 28; size <= 4096; size += 28) {
         sizes.push_back(size);
     }
 
