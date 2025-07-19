@@ -5,3 +5,4 @@ a.out
 a
 openblas_test
 .DS_Store
+naive_test

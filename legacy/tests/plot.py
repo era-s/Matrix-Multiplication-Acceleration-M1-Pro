@@ -130,9 +130,9 @@ def read_and_plot_csv(main_csv="benchmark_results.csv",
     
     # タイトルの作成
     if df_comp is not None:
-        plt.title(f"DGEMM Performance Comparison on {cpu_info}", fontsize=16)
+        plt.title(f"Matrix Multiplication Performance Comparison on {cpu_info}", fontsize=16)
     else:
-        plt.title(f"{main_label} DGEMM Performance on {cpu_info}", fontsize=16)
+        plt.title(f"{main_label} Matrix Multiplication Performance on {cpu_info}", fontsize=16)
     
     plt.xlabel("Matrix Size (N×N)", fontsize=14)
     plt.ylabel("Performance (GFLOPS)", fontsize=14)

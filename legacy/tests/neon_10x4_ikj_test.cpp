@@ -18,9 +18,13 @@
 // #define NC 520
 // #define MC 256
 
-#define PC 640 // 이거 내일 벤치 돌려보자 무조건 46 GFLOPS 나올듯?
-#define NC 520
-#define MC 768
+#define PC 640 // 무조건 46 GFLOPS 나올듯?
+#define NC 760
+#define MC 520
+
+// #define PC 1000 // 이거 46 쪼오금 덜나옴
+// #define NC 480
+// #define MC 480
 
 #define CACHELINE 64
 #if defined(__GNUC__) || defined(__clang__)
@@ -33,6 +37,36 @@
 
 ALIGN(CACHELINE) static double Apanel[PC * NC] __attribute__((aligned(16384)));
 ALIGN(CACHELINE) static double Bpanel[MC * PC] __attribute__((aligned(16384)));
+
+static inline void pack_Apanel(const double* A, int lda, int i, int k, int nc, int kc, double* Apanel) {
+    for (int ir = 0; ir < nc; ir += NR)
+    {
+        int nr = std::min(NR, nc - ir);
+        for (int l = 0; l < kc; ++l)
+        {
+            const double* Asrc = A + (i + ir)*lda + (k + l);
+            double*       Adst = Apanel + ir*kc + l*NR; /* l fast */
+            for (int ii = 0; ii < nr; ++ii)
+                Adst[ii] = Asrc[ii*lda];      /* row-major read */
+            for (int ii = nr; ii < NR; ++ii)  /* padding */
+                Adst[ii] = 0.0;
+        }
+    }
+}
+
+static inline void pack_Bpanel(const double* B, int ldb, int k, int j, int kc, int mc, double* Bpanel) {
+    for (int jr = 0; jr < mc; jr += MR)
+    {
+        int mr = std::min(MR, mc - jr);
+        for (int l = 0; l < kc; ++l)
+        {
+            const double* Bsrc = B + (k + l)*ldb + (j + jr);
+            double*       Bdst = Bpanel + jr*kc + l*MR;  /* l fast */
+            for (int jj = 0; jj <mr; ++jj)  Bdst[jj] = Bsrc[jj];
+            for (int jj = mr; jj < MR; ++jj) Bdst[jj] = 0.0;
+        }
+    }
+}
 
 static inline void neon_kernel_10x4(const int kc,
                                    const double* __restrict A, const int ldA,
@@ -110,8 +144,8 @@ static inline void neon_kernel_10x4(const int kc,
 }
 
 /*------------------------------------------------------------*/
-/*  j-k-i  blocked GEMM  launcher  (Row-major)                 */
-/*  outer-N(j) → KC(k) → MC(i)                                */
+/*  i-k-j  blocked GEMM  launcher  (Row-major)                 */
+/*  outer-M(i) → KC(k) → NC(j)                                */
 /*------------------------------------------------------------*/
 void matmul_neon_kernel_launcher(int n,  /* A rows / C rows           */
                                  int p,  /* shared dim (k)            */
@@ -120,61 +154,26 @@ void matmul_neon_kernel_launcher(int n,  /* A rows / C rows           */
                                  const double*  B, int ldb, /* ldb = m */
                                  double*        C, int ldc) /* ldc = m */
 {
-    /* ---- Loop-3 : N-dimension (B,C 열) ------------------------------ */
-    for (int j = 0; j < m; j += MC)
+    /* ---- Loop-1 : M-dimension (A,C 행) ------------------------------ */
+    for (int i = 0; i < n; i += NC)
     {
-        int mc = std::min(MC, m - j);
+        int nc = std::min(NC, n - i);
 
         /* ---- Loop-2 : K-dimension ----------------------------------- */
         for (int k = 0; k < p; k += PC)
         {
             int kc = std::min(PC, p - k);
 
-            /* ---- B 패널 : kc × mc  (row-major, kc fast) ------------- */
-            for (int jr = 0; jr < mc; jr += MR)
-            {
-                int mr = std::min(MR, mc - jr);
-                for (int l = 0; l < kc; ++l)
-                {
-                    const double* Bsrc = B + (k + l)*ldb + (j + jr);
-                    double*       Bdst = Bpanel + jr*kc + l*MR;  /* l fast */
-                    for (int jj = 0; jj <mr; ++jj)  Bdst[jj] = Bsrc[jj];
-                    for (int jj = mr; jj < MR; ++jj) Bdst[jj] = 0.0;
-                }
-            }
+            /* ---- A 패널 : nc × kc (col-major, NR fast) */
+            pack_Apanel(A, lda, i, k, nc, kc, Apanel);
 
-            /* ---- Loop-1 : M-dimension (A,C 행) ---------------------- */
-            for (int i = 0; i < n; i += NC)
+            /* ---- Loop-3 : N-dimension (B,C 열) ------------------------------ */
+            for (int j = 0; j < m; j += MC)
             {
-                int nc = std::min(NC, n - i);
+                int mc = std::min(MC, m - j);
 
-                /* A 패널 : nc × kc (col-major, NR fast) */
-                for (int ir = 0; ir < nc; ir += NR)
-                {
-                    int nr = std::min(NR, nc - ir);
-                    for (int l = 0; l < kc; ++l)
-                    {
-                        const double* Asrc = A + (i + ir)*lda + (k + l);
-                        double*       Adst = Apanel + ir*kc + l*NR; /* l fast */
-                        for (int ii = 0; ii < nr; ++ii)
-                            Adst[ii] = Asrc[ii*lda];      /* row-major read */
-                        for (int ii = nr; ii < NR; ++ii)  /* padding */
-                            Adst[ii] = 0.0;
-                    }
-                }
-                // double* Cpanel = C + (i)*ldc + j;         /* C(i,j) 블록 */
-                // for (int jr = 0; jr < mc; jr += MR)
-                // {
-                //     double* Ccol = Cpanel + jr;       /* C 행 시작 */
-                //     for (int ir = 0; ir < nc; ir += NR)
-                //     {
-                //         double* Cblk = Ccol + ir * ldc;         /* 4×8 타일 */
-                //         neon_kernel_10x4(kc,
-                //                         Apanel + ir*kc, NR,   /* A 패널 */
-                //                         Bpanel + jr*kc, MR,   /* B 패널 */
-                //                         Cblk, ldc);           /* C */
-                //     }
-                // }
+                /* ---- B 패널 : kc × mc  (row-major, kc fast) ------------- */
+                pack_Bpanel(B, ldb, k, j, kc, mc, Bpanel);
 
                 /* ---- 마이크로-커널 호출 ------------------------------ */
                 double* Cpanel = C + (i)*ldc + j;         /* C(i,j) 블록 */
@@ -190,9 +189,9 @@ void matmul_neon_kernel_launcher(int n,  /* A rows / C rows           */
                                         Cblk, ldc);           /* C */
                     }
                 }
-            } /* end i-loop */
+            } /* end j-loop */
         }     /* end k-loop */
-    }         /* end j-loop */
+    }         /* end i-loop */
 }
 
 void matmul_naive(const int n, const int p, const int m, const double* A, const int lda,

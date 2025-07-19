@@ -12,7 +12,9 @@
 #include <omp.h>
 #endif
 
-
+// g++ -I/opt/openblas_static/include \
+//     -L/opt/openblas_static/lib \
+//     openblas_test.cpp -lopenblas -lpthread -lm -o openblas_test
 
 void matmul_naive(const int n, const int p, const int m, const double* A, const int lda,
                   const double* B, const int ldb, double* C, const int ldc) {
@@ -92,13 +94,13 @@ int main(int argc, char* argv[]) {
 
     std::vector<int>sizes;
 
-    for (auto size = 4; size <= 124; size += 4) {
+    for (auto size = 20; size <= 4096; size += 20) {
         sizes.push_back(size);
     }
 
-    for (auto size = 128; size <= 4096; size += 8) {
-        sizes.push_back(size);
-    }
+    // for (auto size = 128; size <= 4096; size += 8) {
+    //     sizes.push_back(size);
+    // }
 
     const int num_trials = 5;
 

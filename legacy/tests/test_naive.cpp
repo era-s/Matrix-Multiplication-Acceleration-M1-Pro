@@ -4,90 +4,8 @@
 #include <chrono>
 #include <random>
 
-
-void rank_one_kernel_4x4(const int k, 
-                          const double* A, const int lda,
-                          const double* B, const int ldb,
-                          double* C, const int ldc) {
-
-    double c00 = C[0 * ldc + 0];
-    double c01 = C[0 * ldc + 1];
-    double c02 = C[0 * ldc + 2];
-    double c03 = C[0 * ldc + 3];
-
-    double c10 = C[1 * ldc + 0];
-    double c11 = C[1 * ldc + 1];
-    double c12 = C[1 * ldc + 2];
-    double c13 = C[1 * ldc + 3];
-
-    double c20 = C[2 * ldc + 0];
-    double c21 = C[2 * ldc + 1];
-    double c22 = C[2 * ldc + 2];
-    double c23 = C[2 * ldc + 3];
-
-    double c30 = C[3 * ldc + 0];
-    double c31 = C[3 * ldc + 1];
-    double c32 = C[3 * ldc + 2];
-    double c33 = C[3 * ldc + 3];
-
-    for (auto l = 0; l < k; l++) {
-        double a0 = A[0 * lda + l];
-        double a1 = A[1 * lda + l];
-        double a2 = A[2 * lda + l];
-        double a3 = A[3 * lda + l];
-
-        double b0 = B[l * ldb + 0];
-        double b1 = B[l * ldb + 1];
-        double b2 = B[l * ldb + 2];
-        double b3 = B[l * ldb + 3];
-
-        c00 += a0 * b0;   c01 += a0 * b1;
-        c02 += a0 * b2;   c03 += a0 * b3;
-
-        c10 += a1 * b0;   c11 += a1 * b1;
-        c12 += a1 * b2;   c13 += a1 * b3;
-
-        c20 += a2 * b0;   c21 += a2 * b1;
-        c22 += a2 * b2;   c23 += a2 * b3;
-
-        c30 += a3 * b0;   c31 += a3 * b1;
-        c32 += a3 * b2;   c33 += a3 * b3;
-    }
-
-    C[0 * ldc + 0] = c00;   C[0 * ldc + 1] = c01;
-    C[0 * ldc + 2] = c02;   C[0 * ldc + 3] = c03;
-
-    C[1 * ldc + 0] = c10;   C[1 * ldc + 1] = c11;
-    C[1 * ldc + 2] = c12;   C[1 * ldc + 3] = c13;
-
-    C[2 * ldc + 0] = c20;   C[2 * ldc + 1] = c21;
-    C[2 * ldc + 2] = c22;   C[2 * ldc + 3] = c23;
-
-    C[3 * ldc + 0] = c30;   C[3 * ldc + 1] = c31;
-    C[3 * ldc + 2] = c32;   C[3 * ldc + 3] = c33;
-    
-}
-
-void matmul_kernel_launcher(const int n, const int p, const int m,
-                            const double* A, const int lda,
-                            const double* B, const int ldb,
-                            double* C, const int ldc) {
-
-    if (n % 4 != 0 || p % 4 != 0 || m % 4 != 0) {
-        std::cerr << "Matrix dimensions must be multiples of 4 for this kernel." << std::endl;
-        return;
-    }
-
-    for (int i = 0; i < n; i += 4) {
-        for (int j = 0; j < m; j += 4) {
-            rank_one_kernel_4x4(p, A + i * lda, lda, B + j, ldb, C + i * ldc + j, ldc);
-        }
-    }
-    
-}
-
-void matmul_naive(const int n, const int p, const int m, const double* A, const int lda,
-                  const double* B, const int ldb, double* C, const int ldc) {
+void matmul_naive(const int n, const int p, const int m, const double* __restrict A, const int lda,
+                  const double* __restrict B, const int ldb, double* __restrict C, const int ldc) {
     for (int i = 0; i < n; ++i) {
         for (int j = 0; j < m; ++j) {
             C[i * ldc + j] = 0.0;
@@ -104,7 +22,6 @@ bool verify_results(const int n, const int p, const int m, const double* A, cons
     std::vector<double> C_opt(n * m, 0.0);
     
     matmul_naive(n, p, m, A, lda, B, ldb, C_naive.data(), ldc);
-    matmul_kernel_launcher(n, p, m, A, lda, B, ldb, C_opt.data(), ldc);
     
     const double epsilon = 1e-10;
     bool match = true;
@@ -162,13 +79,13 @@ int main(int argc, char* argv[]) {
 
     std::vector<int>sizes;
 
-    for (auto size = 4; size <= 124; size += 4) {
+    for (auto size = 20; size <= 2000; size += 20) {
         sizes.push_back(size);
     }
 
-    for (auto size = 128; size <= 2048; size += 8) {
-        sizes.push_back(size);
-    }
+    // for (auto size = 128; size <= 2048; size += 8) {
+    //     sizes.push_back(size);
+    // }
 
     const int num_trials = 5;
 
