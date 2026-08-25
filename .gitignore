@@ -1,4 +1,6 @@
 /.vscode
+/build
+/results/benchmark-latest.csv
 *.exe
 a.out
 *.o
